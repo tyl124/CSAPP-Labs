@@ -688,20 +688,20 @@ Disassembly of section .text:
 000000000040131b <string_length>:
 # 计算字符串长度
   40131b:	80 3f 00             	cmpb   $0x0,(%rdi)
-  # rdi寄存器中存储的是输入的字符串的保存地址,(%rdi)取地址对应的字符串, 与0进行比较
-  # 若等于0(即字符串为NULL) 则跳转到地址:0x401332处,令%eax寄存器为0,返回字符串长度0
+  # rdi寄存器中存储的是输入字符串的地址, (%rdi)取地址对应的字符串, 与0进行比较
+  # 若等于0(即字符串为NULL)则跳转到地址:0x401332处, 令%eax寄存器为0, 返回字符串长度0
   40131e:	74 12                	je     401332 <string_length+0x17>
   401320:	48 89 fa             	mov    %rdi,%rdx
   401323:	48 83 c2 01          	add    $0x1,%rdx
-  # 将rdi中内容赋给rdx,并令rdx加1(此时已将字符串的第一个字符计数)
-  # 加一含义即:已计数了一个字符,地址指针指向第二个字符
+  # 将rdi中内容赋给rdx, 并令rdx加1(此时已将字符串的第一个字符计数)
+  # 加一即计数了一个字符, 地址指针指向第二个字符
   401327:	89 d0                	mov    %edx,%eax
   401329:	29 f8                	sub    %edi,%eax
-  # sub 指令每执行一次,eax寄存器中存储加一
+  # sub 指令每执行一次, %eax 寄存器加一
   40132b:	80 3a 00             	cmpb   $0x0,(%rdx)
-  # 此时比较rdx寄存器所之内容(字符串地址)是否为0,(字符串是否为NULL)
+  # 此时比较 %rdx 寄存器内容(字符串地址)是否为0, (字符串是否为NULL)
   40132e:	75 f3                	jne    401323 <string_length+0x8>
-  # 不为0则循环, 为0则返回(eax寄存器中存储了字符串长度)
+  # 不为0则循环, 为0则返回(%eax 寄存器中存储了字符串长度)
   401330:	f3 c3                	repz retq 
   401332:	b8 00 00 00 00       	mov    $0x0,%eax
   401337:	c3                   	retq   
@@ -711,14 +711,25 @@ Disassembly of section .text:
   40133a:	55                   	push   %rbp
   40133b:	53                   	push   %rbx
   40133c:	48 89 fb             	mov    %rdi,%rbx
+  # 由 string_length 函数可知
+  # 输入的字符串的地址存储在 %rdi 中, 该指令将地址赋给 %rbx 
   40133f:	48 89 f5             	mov    %rsi,%rbp
   401342:	e8 d4 ff ff ff       	callq  40131b <string_length>
+  # 调用 string_length 函数后, 返回值(输入字符串的长度)存储在 %eax 中
+  # 此时 %r12d 存储输入字符串的长度
   401347:	41 89 c4             	mov    %eax,%r12d
   40134a:	48 89 ef             	mov    %rbp,%rdi
   40134d:	e8 c9 ff ff ff       	callq  40131b <string_length>
+  # 721,722两行代码值得思考：
+  # 从上716,717两行代码可知, 这样的格式是为了获取输入字符串的长度
+  # 那么, 同样格式的重复代码, 则应该也是为了获取某个字符串的长度
   401352:	ba 01 00 00 00       	mov    $0x1,%edx
   401357:	41 39 c4             	cmp    %eax,%r12d
   40135a:	75 3f                	jne    40139b <strings_not_equal+0x63>
+  # 读至此处可以理解，727行代码比较 %r12d 与 %eax可以知道, 这行代码是在比较输入字符串长度
+  # 与另一个字符串长度是否相等, 若不等则直接跳转至 0x40139b 处
+  # 所以可以大胆猜测, %rdi 作为传入 string_length 的唯一参数, 其中存储的就是答案字符串地址
+  # 进一步倒推, %rsi 中即存储的是答案字符串的地址!
   40135c:	0f b6 03             	movzbl (%rbx),%eax
   40135f:	84 c0                	test   %al,%al
   401361:	74 25                	je     401388 <strings_not_equal+0x50>
@@ -741,6 +752,7 @@ Disassembly of section .text:
   401394:	eb 05                	jmp    40139b <strings_not_equal+0x63>
   401396:	ba 01 00 00 00       	mov    $0x1,%edx
   40139b:	89 d0                	mov    %edx,%eax
+  # 令 %eax 为1, 并退栈
   40139d:	5b                   	pop    %rbx
   40139e:	5d                   	pop    %rbp
   40139f:	41 5c                	pop    %r12
