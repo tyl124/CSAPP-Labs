@@ -357,20 +357,29 @@ Disassembly of section .text:
   400efc:	55                   	push   %rbp
   400efd:	53                   	push   %rbx
   400efe:	48 83 ec 28          	sub    $0x28,%rsp
+  # 开辟栈空间, 为后续操作作准备
   400f02:	48 89 e6             	mov    %rsp,%rsi
+  # 给 %rsi 寄存器赋值, 作为传入 read_six_numbers 函数的参数
   400f05:	e8 52 05 00 00       	callq  40145c <read_six_numbers>
   400f0a:	83 3c 24 01          	cmpl   $0x1,(%rsp)
+  # 首先比较栈顶元素是不是1, 若是, 再接着往下比较
   400f0e:	74 20                	je     400f30 <phase_2+0x34>
   400f10:	e8 25 05 00 00       	callq  40143a <explode_bomb>
   400f15:	eb 19                	jmp    400f30 <phase_2+0x34>
   400f17:	8b 43 fc             	mov    -0x4(%rbx),%eax
   400f1a:	01 c0                	add    %eax,%eax
+  # %eax = %eax * 2
+  # 并且 %eax 的初值为1
   400f1c:	39 03                	cmp    %eax,(%rbx)
   400f1e:	74 05                	je     400f25 <phase_2+0x29>
   400f20:	e8 15 05 00 00       	callq  40143a <explode_bomb>
+  # 只要有任意一个数字与当前 %eax 寄存器中数字不同, 即引爆炸弹
   400f25:	48 83 c3 04          	add    $0x4,%rbx
   400f29:	48 39 eb             	cmp    %rbp,%rbx
   400f2c:	75 e9                	jne    400f17 <phase_2+0x1b>
+  # 此处的 %rbp 寄存器是一个界限:当 %rbx < %rbp时, 一直循环
+  # 中间的这一段汇编代码, 就是在对读入的6个数字进行比较
+  # 读入的6个数字保存在栈上, 具体位置请查看 <read_six_numbers> 函数
   400f2e:	eb 0c                	jmp    400f3c <phase_2+0x40>
   400f30:	48 8d 5c 24 04       	lea    0x4(%rsp),%rbx
   400f35:	48 8d 6c 24 18       	lea    0x18(%rsp),%rbp
@@ -822,6 +831,7 @@ Disassembly of section .text:
   401457:	e8 c4 f7 ff ff       	callq  400c20 <exit@plt>
 
 000000000040145c <read_six_numbers>:
+# 读入输入的6个数字, 并保存在栈上
   40145c:	48 83 ec 18          	sub    $0x18,%rsp
   401460:	48 89 f2             	mov    %rsi,%rdx
   401463:	48 8d 4e 04          	lea    0x4(%rsi),%rcx
@@ -833,11 +843,23 @@ Disassembly of section .text:
   40147c:	4c 8d 46 08          	lea    0x8(%rsi),%r8
   401480:	be c3 25 40 00       	mov    $0x4025c3,%esi
   401485:	b8 00 00 00 00       	mov    $0x0,%eax
+  # 这一段代码的具体分析很简单, 只需要按照指令一步一步地进行即可
+  # 在执行完当前指令(0x401485)时, 使用命令查看各个寄存器的值, 可以得到：
+  # 并且查看对应地址中的存储内容可以得到:
+  # %rax = 0x7fff_ffff_df40 --- 0x05
+  # %r8  = 0x7fff_ffff_df38 --- 0x03
+  # %r9  = 0x7fff_ffff_df3c	--- 0x04
+  # %rcx = 0x7fff_ffff_df34	--- 0x02
+  # %rdx = 0x7fff_ffff_df30 = %rsi --- 0x01
+  # %rsp = 0x7fff_ffff_df10 --- 0x40
+  # %rdi = 0x6037d0 --- 从该地址开始保存了读入的6个数字, 使用'x/s 0x6037d0'命令可查看到对应字符串 
+  # 需要说明的是, 直到此指令执行结束(401485), 读入的数字并未存储到这些地址上, 直到下一条指令结束(40148a), 才将数字保存到了栈上
   40148a:	e8 61 f7 ff ff       	callq  400bf0 <__isoc99_sscanf@plt>
   40148f:	83 f8 05             	cmp    $0x5,%eax
   401492:	7f 05                	jg     401499 <read_six_numbers+0x3d>
   401494:	e8 a1 ff ff ff       	callq  40143a <explode_bomb>
   401499:	48 83 c4 18          	add    $0x18,%rsp
+  # 此时, 读入的数字已经保存到了栈上, 退栈回到phase_2的函数栈帧中
   40149d:	c3                   	retq   
 
 000000000040149e <read_line>:
