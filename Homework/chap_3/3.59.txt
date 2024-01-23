@@ -1,0 +1,48 @@
+/* 3.59 */
+
+c code:
+typedef __int128 int128_t;
+
+void store_prod(int128_t *dest, int64_t x, int64_t y){
+	*dest = x * (int128_t)y;
+}
+
+// dest in %rdi, x in %rsi, y in %rdx
+
+asm:
+store_prod:
+	movq	%rdx, %rax		# %rax = y 
+	cqto					# %rdx = y63 (y63表示y的最高比特位)
+	movq	%rsi, %rcx		# %rcx = x
+	sarq	$63,  %rcx		# %rcx = x63 (算术右移63位)
+	imulq	%rax, %rcx		# %rcx = y * x63
+	imulq	%rsi, %rdx		# %rdx = x * y63
+	addq	%rdx, %rcx		# %rcx = x * y63 + y * x63
+	mulq	%rsi			# [%rdx:%rax] = x * y, 高64位为%rdx, 低64位为%rax
+	addq	%rcx, %rdx		# %rdx += x * y63 + y * x63
+	movq	%rax, (%rdi)	# 存储低64位
+	movq	%rdx, 8(%rdi)	# 存储高64位
+	ret
+
+# 计算机中的有符号乘法是以无符号乘法方式实现, 此处直接将x / y 当作无符号数进行处理
+# 在将x / y拓展到128位时可重写为:
+
+	x' = (x + x63 * 2^64)
+	y' = (y + y63 * 2^64)
+
+# x', y'表示非负整数
+# x, y表示有符号整数
+	
+	x' * y' = (x + x63 * 2^64) * (y + y63 * 2^64)
+			= x * y + (x63 * y + y63 * x) * 2^64 + (x63 * y63) * 2^(2*64)
+
+# 最后一项忽略, 所以:
+
+	x * y = x' * y' - (x63 * y + y63 * x) * 2^64
+
+# 符号问题:
+	
+	x63 / y63 = 0 / 1
+	进行符号拓展到64比特之后的真值为0 / -1
+	方便起见此处统一写作x63 / y63同时表示原最高比特位值和真值
+

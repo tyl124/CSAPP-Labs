@@ -1,0 +1,43 @@
+/* 3.60 */
+
+long loop(long x, int n)
+x in %rdi, n in %esi
+
+loop:
+    movl    %esi,   %ecx        # %ecx = n
+    movl    $1,     %edx        # %edx = 1
+    movl    $0,     %eax        # %eax = 0
+    jmp     .L2
+.L3:
+    movq    %rdi,   %r8         # %r8 = x
+    andq    %rdx,   %r8         # %r8 = %r8 & %rdx = x & mask 
+    orq     %r8,    %rax        # %rax = %rax | %r8
+    salq    %cl,    %rdx        # %rdx = %rdx << %cl
+.L2:
+    testq   %rdx,   %rdx        # %rdx == 0
+    jne     .L3                 # if %rdx != 0, jump to .L3
+    rep; ret
+
+c code:
+
+long loop(long x, int n){
+    long result = 0;
+    long mask;
+    for(mask = 1; mask != 0; mask = mask << n){
+        result |= (x & mask);
+    }
+    return result;
+}
+
+A. x in %rdi, n in %esi, mask in %rdx, result in % %eax;
+B. result init with 0, mask init with 1;
+C. mask != 0;
+D. mask = mask << n;
+explain:
+	此处为什么%cl表示的是n
+	因为对于mask来说, 一个long型整数最多为64比特, 而%cl表示的是%ecx低8位
+	8比特的有符号数的表示范围:[-128, 127], 已经大于64
+	所以此处可以直接用%cl来表示n (n大于8比特的数值部分已经无意义)
+E. result |= (x & mask);
+F. filled above.
+
