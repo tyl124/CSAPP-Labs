@@ -110,7 +110,7 @@ jump to:
 	
 400f20: e8 15 05 00 00 call 40143a<explode_bomb>
 400f25: 48 83 c3 04    add    $0x4,%rbx
-%rbx += 4;		./pic// 继续往上比较输入的数字
+%rbx += 4;				// 继续往上比较输入的数字
 
 400f29: 48 39 eb       cmp    %rbp,%rbx
 400f2c: 75 e9          jne  400f17<phase_2+0x1b>
@@ -121,10 +121,10 @@ if((%rbp - %rbx) != 0)
 return;
 
 400f30: 48 8d 5c 24 04 lea    0x4(%rsp),%rbx
-%rbx = %rsp + 4;./pic//(此处存储输入的第2个数字)
+%rbx = %rsp + 4;		//(此处存储输入的第2个数字)
 
 400f35: 48 8d 6c 24 18 lea    0x18(%rsp),%rbp
-%rbp = %rsp + 0x18;./pic//(循环结束的边界地址)
+%rbp = %rsp + 0x18;		//(循环结束的边界地址)
 
 400f3a: eb db          jmp  400f17<phase_2+0x1b>
 jump to:
