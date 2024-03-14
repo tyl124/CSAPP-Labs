@@ -1,0 +1,48 @@
+# Execution begins at address 0
+	.pos 0
+	irmovq stack, %rsp
+	call main
+	halt
+
+# Sample linked list
+	.align 8
+# Source block
+src:
+	.quad 0x00a
+	.quad 0x0b0
+	.quad 0xc00
+# Destination block
+dst:
+	.quad 0x111
+	.quad 0x222
+	.quad 0x333
+
+# result in %rax
+main:
+	irmovq $0, %rax
+	call copy_block
+	ret
+
+
+# long copy_block(long *src, long *dest, long len)
+# src in %rdi, dest in %rsi, len in %rdx
+copy_block:
+	irmovq src, %rdi
+	irmovq dst, %rsi
+	irmovq $3, %rdx
+	jmp test
+# val in %r8
+loop:
+	rrmovq (%rdi), %r8
+	addq $8, %rdi
+	rmmovq %r8, (%rsi)
+	addq $8, %rsi
+
+	
+
+
+
+test:
+	andq %rdx, %rdx
+	jne loop
+	ret
