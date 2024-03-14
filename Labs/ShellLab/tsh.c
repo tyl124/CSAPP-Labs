@@ -1,12 +1,3 @@
-/* 
- * tsh - A tiny shell program with job control
- * 
- * <Put your name and login ID here>
- * 
- * deconx
- * 2022/4/1
- * 
- */
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
