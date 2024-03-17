@@ -165,9 +165,9 @@ void sigchld_handler(int sig)
 	pid_t pid;
 	struct job_t *job;
 	sigset_t mask_all, prev_mask;
-	Sigfillset(&mask_all);
+	sigfillset(&mask_all);
 	while((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0){
-		Sigprocmask(SIG_BLOCK, &mask_all, &prev_mask);
+		sigprocmask(SIG_BLOCK, &mask_all, &prev_mask);
 		if(WIFEXITED(status))	/* terminated normally */
 			deletejob(jobs, pid);
 		else if(WIFSIGNALED(status)){
@@ -179,7 +179,7 @@ void sigchld_handler(int sig)
 			job = getjobpid(jobs, pid);
 			job->state = ST;
 		}
-		Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+		sigprocmask(SIG_SETMASK, &prev_mask, NULL);
 	}
 	errno = olderrno; 
     return;
