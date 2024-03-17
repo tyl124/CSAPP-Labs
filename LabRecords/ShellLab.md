@@ -15,7 +15,7 @@ int parseline(char *buf, char *argv[]);
 int builtin_command(char *argv[]);
 ```
 
-一个C程序的入口永远是`<main>`函数，所以我们考虑从阅读`<main>`函数入手：
+一个C程序的入口永远是`<main>`函数，所以考虑从阅读`<main>`函数入手：
 
 ## main
 ```c
@@ -104,7 +104,7 @@ Signal(SIGCHLD, sigchld_handler);  /* Terminated or stopped child */
 ## sig*_handler
 
 ### sigint_handler
-实现一个SIGINT信号处理函数，当用户按下`Ctrl-c`时，shell会捕捉到内核发出的SIGINT信号并传递给前台作业。
+> sigint_handler - The kernel sends a SIGINT to the shell whenver the user types ctrl-c at the keyboard.  Catch it and send it along to the foreground job.  
 
 代码实现如下:
 ```c
@@ -113,14 +113,14 @@ void sigint_handler(int sig)
 	int olderrno = errno;
 	pid_t pid;
 	sigset_t mask_all, prev_mask;
-	Sigfillset(&mask_all);
-	Sigprocmask(SIG_BLOCK, &mask_all, &prev_mask);
-	if(pid = fgpid(jobs) != 0){
-		Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
-		Kill(-pid, SIGINT);
+	sigfillset(&mask_all);
+	sigprocmask(SIG_BLOCK, &mask_all, &prev_mask);
+	if((pid = fgpid(jobs)) != 0){
+		sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+		kill(-pid, SIGINT);
 	}
 	errno = olderrno;
-    return;
+  return;
 }
 ```
 
@@ -128,18 +128,20 @@ void sigint_handler(int sig)
 
 
 ### sigtstp_handler
+> sigtstp_handler - The kernel sends a SIGTSTP to the shell whenever the user types ctrl-z at the keyboard. Catch it and suspend the foreground job by sending it a SIGTSTP.  
 
+代码实现如下:
 ```c
 void sigtstp_handler(int sig) 
 {
 	int olderrno = errno;
 	pid_t pid;
 	sigset_t mask_all, prev_mask;
-	Sigfillset(&mask_all);
-	Sigprocmask(SIG_BLOCK, &mask_all, &prev_mask);
-	if(pid = fgpid(jobs) != 0){
-		Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
-		Kill(-pid, SIGSTOP);
+	sigfillset(&mask_all);
+	sigprocmask(SIG_BLOCK, &mask_all, &prev_mask);
+	if((pid = fgpid(jobs)) != 0){
+		sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+		kill(-pid, SIGSTOP);
 	}
 	errno = olderrno;
     return;
@@ -147,6 +149,13 @@ void sigtstp_handler(int sig)
 
 
 ### sigchld_handler
+> sigchld_handler - The kernel sends a SIGCHLD to the shell whenever a child job terminates (becomes a zombie), or stops because it received a SIGSTOP or SIGTSTP signal. The handler reaps all available zombie children, but doesn't wait for any other currently running children to terminate.  
+
+即当任何一个子作业收到一个`SIGSTOP`或`SIGTSTP`信号终止时，该处理程序会捕获内核发出的`SIGCHLD`信号，回收所有的僵死子作业，但是并不等待当前正在运行的子作业终止，这里刚好就要用到书上提到的一个`option`选项:
+
+![waitoption](./pic/waitoption.png)
+
+代码实现如下:
 
 ```c
 void sigchld_handler(int sig) 
@@ -179,40 +188,196 @@ void sigchld_handler(int sig)
 
 
 
-
-
-
-
-
-
 ## eval
 
-根据文档中给的提示:
+`<eval>`的实现其实比较简单，因为书上已经给了我们一个"less interesting"的版本，我们需要做的就是在这个版本上进行修改即可。
+
+代码实现如下:
 
 ```c
-/* 
- * eval - Evaluate the command line that the user has just typed in
- * 
- * If the user has requested a built-in command (quit, jobs, bg or fg)
- * then execute it immediately. Otherwise, fork a child process and
- * run the job in the context of the child. If the job is running in
- * the foreground, wait for it to terminate and then return.  Note:
- * each child process must have a unique process group ID so that our
- * background children don't receive SIGINT (SIGTSTP) from the kernel
- * when we type ctrl-c (ctrl-z) at the keyboard.  
-*/
+void eval(char *cmdline) 
+{
+	char *argv[MAXARGS];	/* Arguments list execve() */
+	char buf[MAXLINE];		/* Holds modified command line*/
+	int bg;					/* Should the job run in bg or fg ? */
+	pid_t pid;				/* Process id */
+
+	strcpy(buf, cmdline);
+	bg = parseline(buf, argv);
+	if(argv[0] == NULL)
+		return;		/* Ignore empty lines */
+	
+	sigset_t mask_all, mask_chld, prev_mask;
+	sigfillset(&mask_all);
+	sigemptyset(&mask_chld);
+	sigaddset(&mask_chld, SIGCHLD);
+
+	if(!builtin_cmd(argv)){
+		sigprocmask(SIG_BLOCK, &mask_chld, &prev_mask);
+		if((pid = fork()) == 0){	/* Child runs user job */
+			sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+			setpgid(0, 0);
+			if(execve(argv[0], argv, environ) < 0){
+				sigprocmask(SIG_BLOCK, &mask_chld, NULL);
+				printf("%s Command not found\n", argv[0]);
+				exit(0);
+			}
+		}
+
+		/* Parent waits for foreground job to terminate */
+		if(!bg){
+			sigprocmask(SIG_BLOCK, &mask_all, NULL);
+			addjob(jobs, pid, FG, cmdline);
+			sigprocmask(SIG_SETMASK, &mask_chld, NULL);
+			waitfg(pid);
+		}
+		else{
+			sigprocmask(SIG_BLOCK, &mask_all, NULL);
+			addjob(jobs, pid, BG, cmdline);
+			sigprocmask(SIG_SETMASK, &mask_chld, NULL);
+			printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
+		}
+		sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+	}
+	return;
+}
+
 ```
 
-`<eval>`代码实现如下：
+需要注意的是，根据书上的说法:
+![sigsafe](./pic/sigsafe.png)
+所以我们需要在每次调用`printf`前进行信号屏蔽，否则会出错。
+
+## builtin_cmd
+
+这部分代码也很简单，根据在`eval`中得到的命令，去判断一下`argv[0]`是否是一个内置命令，如果是就执行相应的操作，否则返回0表明这不是一个内置命令。
+
+代码实现如下:
 
 ```c
+int builtin_cmd(char **argv) 
+{
+	if(!strcmp(argv[0], "quit"))
+		exit(0);
+	if(!strcmp(argv[0], "&"))
+		return 1;
 
+	if(!strcmp(argv[0], "jobs")){
+		listjobs(jobs);
+		return 1;
+	}
+	if(!strcmp(argv[0], "bg") || !strcmp(argv[0], "fg")){
+		do_bgfg(argv);
+		return 1;
+	}
+    return 0;     /* not a builtin command */
+}
 
 ```
 
 
+## do_bgfg
+
+首先明确两个命令的输入格式:
+
+```bash
+bg <job>
+fg <job>
+```
+两个命令分别从后台和前台调动对应`<job>`号的作业继续执行，实现思路如下:
+
+- 根据`argv[0]`设置将要调用的作业状态等于`FG`或`BG`；
+- 读取`argv[1]`获得对应的`jobid`或`pid`；
+- 向其发送`SIGCONT`信号，如果是`FG`，就`waitfg`；否则直接打印要求输出的信息。
+
+代码实现如下:
+```c
+void do_bgfg(char **argv) 
+{
+    struct job_t *job = NULL;        
+    int state;                     
+    int id;                        
+    if(!strcmp(argv[0], "bg")) state = BG;
+        else state = FG;  
+    if(argv[1]==NULL){               
+        printf("%s command requires PID or %%jobid argument\n", argv[0]);
+        return;
+    }
+    if(argv[1][0]=='%'){             
+       if(sscanf(&argv[1][1], "%d", &id) > 0){
+            job = getjobjid(jobs, id);  
+            if(job==NULL){
+                printf("%%%d: No such job\n", id);
+                return;
+            }
+        }
+    }
+    else if(!isdigit(argv[1][0])) {  
+        printf("%s: argument must be a PID or %%jobid\n", argv[0]);
+        return;
+    }
+    else{                      
+        id = atoi(argv[1]);
+        job = getjobpid(jobs, id);
+        if(job==NULL){
+            printf("(%d): No such process\n", id);
+            return;
+        }
+
+    }
+    kill(-(job->pid), SIGCONT);       
+    job->state = state;
+    if(state == BG)
+        printf("[%d] (%d) %s",job->jid, job->pid, job->cmdline);
+    else 
+        waitfg(job->pid);
+    return;
+}
+```
+
+## waitfg
+
+> waitfg - Block until process pid is no longer the foreground process
+
+作者贴心地为我们准备了这个函数：
+
+```c
+/* fgpid - Return PID of current foreground job, 0 if no such job */
+pid_t fgpid(struct job_t *jobs) {
+    int i;
+
+    for (i = 0; i < MAXJOBS; i++)
+	if (jobs[i].state == FG)
+	    return jobs[i].pid;
+    return 0;
+}
+```
+
+所以只需要不停地调用`fgpid`测试返回值，并挂起当前进程(注意要设置此时能够接受到进程终止的信号)，等待信号带来即可。
+
+代码实现如下:
+
+```c
+void waitfg(pid_t pid)
+{
+	sigset_t mask_all;
+	sigemptyset(&mask_all);
+	while(fgpid(jobs) != 0){
+		sigsuspend(&mask_all);
+	}
+    return;
+}
+
+```
+
+此处我们按照教材建议使用`sigsespend`。
 
 
+## ---Answer Test---
+
+![testsl](./pic/testsl.png)
+
+左侧运行`make test15`，右侧运行`make rtest15`，`ShellLab`顺利通过。
 
 
 
