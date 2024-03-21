@@ -24,9 +24,7 @@ sudo apt-get install libc6-dev-i386
 ```c
 // malloclab-handout/config.h
 ...
-
 #define TRACEDIR "./traces/"
-
 ...
 ```
 
@@ -176,7 +174,7 @@ int mm_init(void)
 }
 ```
 
-3. 放置分配块:
+3. 适配函数:
 
 ```c
 
@@ -212,7 +210,7 @@ static void *First_fit(size_t asize){
 }
 ```
 
-4. 放置与合并:
+4. 放置与回收:
 ```c
 static void place(void *bp, size_t asize){
 	size_t csize = GET_SIZE(HDRP(bp));
@@ -267,7 +265,7 @@ static void *coalesce(void *bp){
 }
 ```
 
-5. 分配与回收:
+5. 请求与释放:
 ```c
 /*
  * mm_free - Freeing a block does nothing.
@@ -361,17 +359,261 @@ heap_listp += DSIZE;
 
 代码实现如下:
 
-1. 一些涉及到操作双向链表的宏:
+0. 一些涉及到操作双向链表指针的宏:
 ```c
-
-
+#define PREV_LINKED_BLKP(bp) ((char *)(bp))
+#define NEXT_LINKED_BLKP(bp) ((char *)(bp))
 ```
 
+1. 增加几个涉及链表操作的函数:
 
+增加几个涉及链表操作的函数
+```c
+static void *find_asize_p(size_t asize){
+	void* heap_listp = mem_heap_lo();
+	
+  if(asize <= 16)
+  	return(heap_listp + 1 * WSIZE);
+  if(asize <= 32)
+  	return(heap_listp + 2 * WSIZE);
+  if(asize <= 64)
+  	return(heap_listp + 3 * WSIZE);
+  if(asize <= 128)
+  	return(heap_listp + 4 * WSIZE);
+  if(asize <= 256)
+  	return(heap_listp + 5 * WSIZE);
+  if(asize <= 512)
+  	return(heap_listp + 6 * WSIZE);
+  if(asize <= 1024)
+  	return(heap_listp + 7 * WSIZE);
+  if(asize <= 2048)
+  	return(heap_listp + 8 * WSIZE);
+  if(asize <= 4096)
+  	return(heap_listp + 9 * WSIZE);
+  else
+  	return(heap_listp + 10 * WSIZE);
+}
 
+void insert(void* bp, size_t asize)
+{
+    void* heap_listp = find_asize_p(asize);
+    if(GET(heap_listp) == NULL){
+        PUT(heap_listp, bp);
+        PUT(PREV_LINKED_BLKP(bp), heap_listp);
+    }
+    else{
+        void* next = GET(heap_listp);
+        void* prev = heap_listp;
+        while(next != NULL && GET_SIZE(next)<asize){
+            prev = next;
+            next = NEXT_LINKED_BLKP(next);
+        }
+        PUT(PREV_LINKED_BLKP(bp), prev);
+        PUT(NEXT_LINKED_BLKP(bp), next);
+        if(prev == heap_listp){
+            PUT(prev, bp);
+        }
+        else{
+            PUT(NEXT_LINKED_BLKP(prev), bp);
+        }
+        if(next != NULL) PUT(PREV_LINKED_BLKP(next), bp);
+    }
+}
 
+void delete(void* bp, size_t asize)
+{
+    void* heap_listp = find_asize_p(asize);
+    void* prev = GET(PREV_LINKED_BLKP(bp));
+    void* next = GET(NEXT_LINKED_BLKP(bp));
+    if(prev == heap_listp){
+        PUT(prev, next);
+    }
+    else{
+        PUT(NEXT_LINKED_BLKP(prev), next);
+    }
+    if(next != NULL){
+        PUT(PREV_LINKED_BLKP(next), prev);
+    }
+}
+```
 
+2. 初始化空闲链表:
+```c
+static void *extend_heap(size_t words){
+	char *bp;
+	size_t size;
 
+	/* Allocate an even number of words to maintain alignment */
+	size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
+	if((long)(bp = mem_sbrk(size)) == -1)
+		return NULL;
+
+	/* Initialze free block header/footer and the epilogue header */
+	PUT(HDRP(bp), PACK(size, 0));
+	PUT(FTRP(bp), PACK(size, 0));
+	PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));
+	
+	PUT(PREV_LINKED_BLKP(bp), NULL);
+	PUT(NEXT_LINKED_BLKP(bp), NULL;
+	
+	/* Coalesce if the previous block is empty */
+	return coalesce(bp);
+}
+
+/* 
+ * mm_init - initialize the malloc package.
+ */
+int mm_init(void)
+{
+	/* Create the initial empty heap */
+	if((heap_listp = mem_sbrk(4 * WSIZE)) == (void *)-1)
+		return -1;
+	
+	PUT(heap_listp, 0);
+	/* Set free blocks list pointers */
+	PUT(heap_listp + (1 * WSIZE), NULL); 	// <= 16
+  PUT(heap_listp + (2 * WSIZE), NULL); 	// <= 32
+  PUT(heap_listp + (3 * WSIZE), NULL);	// <= 64
+  PUT(heap_listp + (4 * WSIZE), NULL); 	// <= 128
+  PUT(heap_listp + (5 * WSIZE), NULL); 	// <= 256
+  PUT(heap_listp + (6 * WSIZE), NULL); 	// <= 512
+  PUT(heap_listp + (7 * WSIZE), NULL); 	// <= 1024
+  PUT(heap_listp + (8 * WSIZE), NULL); 	// <= 2048
+  PUT(heap_listp + (9 * WSIZE), NULL); 	// <= 4096
+  PUT(heap_listp + (10 * WSIZE), NULL); //  > 4096
+  
+  /* Head / footer prologue, and epilogue header */
+  PUT(heap_listp + (11 * WSIZE), PACK(DSIZE, 1));
+  PUT(heap_listp + (12 * WSIZE), PACK(DSIZE, 1));
+  PUT(heap_listp + (13 * WSIZE), PACK(0,1));
+  
+	if(extend_heap(CHUNKSIZE/WSIZE) == NULL)
+		return -1;
+   return 0;
+}
+```
+
+3. 适配函数:
+```c
+static void *First_fit(size_t asize){
+	void *heap_listp = find_asize_p(asize);
+	void *list_table = mem_heap_lo();
+	
+	for(; heap_listp <= list_table + 10*WSIZE; heap_listp += WSIZE){
+		void *st = GET(heap_listp);
+		while(st != NULL){
+			if(GET_SIZE(HDRP(st)) >= aszie)
+				return st;
+			st = GET(NEXT_LINKED_BLNK(st));
+		}
+	}
+	return NULL;
+}
+```
+
+4. 放置与回收:
+
+```c
+static void place(void *bp, size_t asize){
+	size_t csize = GET_SIZE(HDRP(bp));
+
+	/* Minimum block size is 16 bytes */
+	if((csize - asize) >= (2*DSIZE)){
+		PUT(HDRP(bp), PACK(asize, 1));
+		PUT(FTRP(bp), PACK(asize, 1));
+		bp = NEXT_BLKP(bp);
+		PUT(HDRP(bp), PACK(csize - asize, 0));
+		PUT(FTRP(bp), PACK(csize - asize, 0));
+		/* Initial the new block's link pointer */
+		PUT(PREV_LINKED_BLKP(bp), NULL);
+		PUT(NEXT_LINKED_BLKP(bp), NULL);
+		/* Insert the new block to list */
+		insert(bp, csize - asize);
+	}
+	else{
+		PUT(HDRP(bp), PACK(csize, 1));
+		PUT(FTRP(bp), PACK(csize, 1));
+	}
+	return;
+}
+
+static void *coalesce(void *bp){
+	size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLNK(bp)));
+	size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLNK(bp)));
+	size_t size = GET_SIZE(HDRP(bp));
+
+	/* case 1 */
+	if(prev_alloc && next_alloc){
+		insert(bp, size);
+		return bp;
+	}
+
+	/* case 2 */
+	else if(prev_alloc && !next_alloc){
+		delete(NEXT_BLKP(bp), GET_SIZE(HDRP(NEXT_BLKP(bp))));
+		size += GET_SIZE(HDRP(NEXT_BLNK(bp)));
+		PUT(HDRP(bp), PACK(size, 0));
+		PUT(FTRP(bp), PACK(size, 0));
+		PUT(PREV_LINKED_BLKP(bp), NULL);
+		PUT(NEXT_LINKED_BLKP(bp), NULL);
+		insert(bp, size);
+	}
+
+	/* case 3 */
+	else if(!prev_alloc && next_alloc){
+		delete(PREV_BLKP(bp), GET_SIZE(HDRP(PREV_BLKP(bp))));
+		size += GET_SIZE(HDRP(PREV_BLNK(bp)));
+		PUT(FTRP(bp), PACK(size, 0));
+		PUT(HDRP(PREV_BLNK(bp)), PACK(size, 0));
+		bp = PREV_BLCK(bp);
+		PUT(PREV_LINKED_BLKP(bp), NULL);
+		PUT(NEXT_LINKED_BLKP(bp), NULL);
+		insert(bp, size);
+	}
+	
+	/* case 4 */
+	else{
+		delete(NEXT_BLKP(bp), GET_SIZE(HDRP(NEXT_BLKP(bp))));
+    delete(PREV_BLKP(bp), GET_SIZE(HDRP(PREV_BLKP(bp))));
+		size += GET_SIZE(HDRP(PREV_BLNK(bp))) + GET_SIZE(FTRP(NEXT_BLNK(bp)));
+		PUT(HDRP(PREV_BLNK(bp)), PACK(size, 0));
+		PUT(FTRP(NEXT_BLNK(bp)), PACK(size, 0));
+		bp = PREV_BLNK(bp);
+		PUT(PREV_LINKED_BLKP(bp), NULL);
+		PUT(NEXT_LINKED_BLKP(bp), NULL);
+		insert(bp, size);
+	}
+	return bp;
+}
+```
+
+5. 请求与释放:
+```c
+/*
+ * mm_free - Freeing a block does nothing.
+ */
+void mm_free(void *ptr)
+{
+	size_t size = GET_SIZE(HDRP(ptr));
+
+	PUT(HDRP(ptr), PACK(size, 0));
+	PUT(FTRP(ptr), PACK(size, 0));
+	PUT(PREV_LINKED_BLKP(ptr), NULL);
+	PUT(NEXT_LINKED_BLKP(ptr), NULL);
+	coalesce(ptr);
+}
+```
+由于`mm_malloc`没有任何变化，此处不再展示相关代码。
+
+进行测试:
+
+![ffv2](./pic/ffv2.png)
+
+## 总结
+
+该实验可以说是目前做的实验里面最麻烦，最磨人心智的一个实验了。纯论实验难度并不算大(课本上其实已经帮助我们实现了第一个版本)，但是它的调试过程是最折磨的————涉及到指针很容易就`segmentation fault`，然后就是不断地进`GDB`，查栈帧，查函数入口，打断点等等。
+
+最终能通过，属实算是一次历练了。
 
 
 
